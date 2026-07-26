@@ -1,160 +1,146 @@
-import os
-import time
-import csv
+import os, json, time, joblib
+import pandas as pd
 from datetime import datetime, timezone
 from web3 import Web3
-import json
-import pandas as pd
-import joblib
+from graph_trust import GraphTrust
+import trust_fusion   
+import warnings
+warnings.filterwarnings("ignore")
 
-# ----------------------------
-# Config
-# ----------------------------
-RPC_URL = os.getenv("GANACHE_RPC", "http://127.0.0.1:7545")
-CONTRACT_ADDRESS = os.getenv("CONTRACT_ADDRESS", "0x206a41F32ecC5be2dF274f77887b52e4caf50dc1")
-ABI_PATH = os.getenv("ABI_PATH", "TrustScore_abi.json")
-LOG_CSV = "trust_log.csv"
-LOOP_INTERVAL = 10
-MAX_LOOPS = 3
-RETRIES = 3
-RETRY_DELAY = 2
+RPC_URL          = os.getenv("GANACHE_RPC",       "http://127.0.0.1:7545")
+CONTRACT_ADDRESS = os.getenv("CONTRACT_ADDRESS",  "0x076Fc718CbB6A7404d9eD94bb203e8d13Bc1cAF9")
+ABI_PATH         = "TrustScore_abi.json"
+DATASET_PATH     = "data/ethereum_fraud.csv"
+TRANSACTION_PATH = "transactions.csv"
+LOG_FILE         = "trust_log.csv"
+MAX_ITERATIONS   = 3
+SLEEP_TIME       = 5
 
-# ----------------------------
-# Load ML model
-# ----------------------------
-model = joblib.load("fraud_model.pkl")
-print("ML model loaded ✅")
+print("="*70 + "\nLoading Machine Learning Models\n" + "="*70)
+rf_scaler           = joblib.load("rf_scaler.pkl")
+rf_model            = joblib.load("fraud_model.pkl")
+xgb_model           = joblib.load("xgboost_model.pkl")
+logistic_model      = joblib.load("logistic_model.pkl")
+svm_model           = joblib.load("svm_model.pkl")
+decision_tree_model = joblib.load("decision_tree_model.pkl")
+feature_columns     = joblib.load("feature_cols.pkl")
+print("✓ Random Forest  ✓ XGBoost  ✓ Logistic  ✓ SVM  ✓ Decision Tree")
 
-# Load Kaggle dataset to get feature template
-template_df = pd.read_csv("data/ethereum_fraud.csv")
-template_df.columns = template_df.columns.str.strip()
+print("\nLoading Dataset...")
+df = pd.read_csv(DATASET_PATH)
+df.columns = df.columns.str.strip()
+print(f"Dataset Size : {len(df)}")
 
-# Features used during training
-feature_cols = [c for c in template_df.columns if c not in
-                ["Unnamed: 0", "Index", "Address",
-                 "ERC20 most sent token type", "ERC20_most_rec_token_type"]]
-
-# ----------------------------
-# Connect to Ganache
-# ----------------------------
+print("\nConnecting to Ganache...")
 w3 = Web3(Web3.HTTPProvider(RPC_URL))
 if not w3.is_connected():
-    raise SystemExit(f"Cannot connect to Ganache at {RPC_URL}")
-
-with open(ABI_PATH, "r") as f:
-    abi = json.load(f)
-
+    raise Exception("Cannot connect to Ganache at " + RPC_URL)
+print("✓ Connected")
+with open(ABI_PATH) as f: abi = json.load(f)
 contract = w3.eth.contract(address=Web3.to_checksum_address(CONTRACT_ADDRESS), abi=abi)
 accounts = w3.eth.accounts
-if len(accounts) == 0:
-    raise SystemExit("No accounts found from Ganache provider")
+if not accounts: raise Exception("No Ganache accounts found.")
 sender = accounts[0]
+print(f"Blockchain Account : {sender}")
 
-# ----------------------------
-# Helpers
-# ----------------------------
-def safe_call(func, *args, retries=RETRIES, delay=RETRY_DELAY, default=None, **kwargs):
-    for i in range(retries):
-        try:
-            return func(*args, **kwargs)
-        except Exception:
-            time.sleep(delay)
-    return default
+graph_model = GraphTrust()
+if os.path.exists(TRANSACTION_PATH):
+    graph_model.build_graph(pd.read_csv(TRANSACTION_PATH))
+    print("✓ Transaction Graph Loaded")
+else:
+    print("Warning: transactions.csv not found — run generate_transactions.py first")
 
-def fraud_prob_to_trust_score(fraud_prob):
-    score = int((1 - fraud_prob) * 100)
-    return max(0, min(score, 100))
+# FIX: top-level function, not nested
+def initialize_log():
+    if os.path.exists(LOG_FILE): return
+    pd.DataFrame(columns=[
+        "timestamp","node","old_score","rf_score","xgb_score","logistic_score",
+        "svm_score","decision_tree_score","ml_score","graph_score","final_score",
+        "fraud_probability","tx_hash","block_number"
+    ]).to_csv(LOG_FILE, index=False)
 
-def predict_trust_for_node(node_data):
-    # Convert input to DataFrame
-    if not isinstance(node_data, pd.DataFrame):
-        node_df = pd.DataFrame([node_data])
-    else:
-        node_df = node_data.copy()
+def prob_to_trust(p):
+    return round(max(0.0, min(100.0, (1-p)*100)), 2)
 
-    # Strip column names
-    node_df.columns = node_df.columns.str.strip()
+def prepare_features(row):
+    features = pd.DataFrame([row])
+    features.columns = features.columns.str.strip()
+    for col in feature_columns:
+        if col not in features.columns: features[col] = 0
+    features = features[feature_columns].fillna(0)
+    scaled = rf_scaler.transform(features)
+    return features, scaled
 
-    # Drop irrelevant columns
-    features_to_drop = [
-        "FLAG",
-        "Unnamed: 0",
-        "Index",
-        "Address",
-        "ERC20 most sent token type",
-        "ERC20_most_rec_token_type"
-    ]
-    node_df = node_df.drop(features_to_drop, axis=1, errors='ignore')
+def predict_trust(row):
+    features, scaled = prepare_features(row)
+    rf_p  = rf_model.predict_proba(features)[0][1]
+    xgb_p = xgb_model.predict_proba(features)[0][1]
+    lr_p  = logistic_model.predict_proba(scaled)[0][1]
+    sv_p  = svm_model.predict_proba(scaled)[0][1]
+    dt_p  = decision_tree_model.predict_proba(features)[0][1]
 
-    # Fill missing values
-    node_df = node_df.fillna(0)
+    rf_s  = prob_to_trust(rf_p);  xgb_s = prob_to_trust(xgb_p)
+    lr_s  = prob_to_trust(lr_p);  sv_s  = prob_to_trust(sv_p)
+    dt_s  = prob_to_trust(dt_p)
 
-    # Reorder columns to match training
-    trained_columns = model.feature_names_in_
-    node_df = node_df.reindex(columns=trained_columns, fill_value=0)
+    ml_score = round(rf_s*0.30 + xgb_s*0.30 + lr_s*0.15 + sv_s*0.15 + dt_s*0.10, 2)
+    fraud_p  = round(rf_p*0.30 + xgb_p*0.30 + lr_p*0.15 + sv_p*0.15 + dt_p*0.10, 6)
+    return fraud_p, rf_s, xgb_s, lr_s, sv_s, dt_s, ml_score
 
-    # Predict fraud probability
-    fraud_prob = model.predict_proba(node_df)[0][1]
+def calculate_final_trust(address, ml_score):
+    try:    graph_score = graph_model.graph_trust(address)
+    except: graph_score = ml_score
+    # FIX: trust_fusion.integrate() not fusion.compute_trust()
+    return round(graph_score, 2), trust_fusion.integrate(ml_score, graph_score)
 
-    # Convert to trust score
-    trust_score = fraud_prob_to_trust_score(fraud_prob)
-    return trust_score
+def read_onchain_score(address):
+    cs = Web3.to_checksum_address(address)
+    try:    return contract.functions.getTrust(cs).call()
+    except:
+        try: return contract.functions.trustScores(cs).call()
+        except: return None
 
-def update_on_chain(node_addr, new_score):
-    def _update():
-        return contract.functions.updateTrust(node_addr, new_score).transact({'from': sender})
-    tx_hash = safe_call(_update, default=None)
-    if tx_hash:
-        receipt = safe_call(lambda: w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120), default=None)
-        blk = receipt.blockNumber if receipt else None
-        return tx_hash.hex(), blk
-    return None, None
+def update_onchain(address, score):
+    cs = Web3.to_checksum_address(address)
+    try:
+        tx = contract.functions.updateTrust(cs, int(round(score))).transact({"from": sender})
+        r  = w3.eth.wait_for_transaction_receipt(tx)
+        return tx.hex(), r.blockNumber
+    except Exception as e:
+        print("Blockchain Error:", e); return None, None
 
-def read_contract_score(node_addr):
-    return safe_call(lambda: contract.functions.trustScores(Web3.to_checksum_address(node_addr)).call(), default=None)
+def run():
+    initialize_log()
+    for iteration in range(MAX_ITERATIONS):
+        print(f"\n{'='*70}\nIteration {iteration+1}/{MAX_ITERATIONS}\n{'='*70}")
+        trust_dict = {}; cache = {}
+        print("\nGenerating Trust Scores...\n")
+        for i, (_, row) in enumerate(df.iterrows()):
+            if i % 500 == 0: print(f"  Processed {i}/{len(df)}")
+            addr         = row["Address"]
+            result       = predict_trust(row.to_dict())
+            cache[addr]  = result
+            trust_dict[addr] = result[-1]
+        graph_model.set_feature_trust(trust_dict)
+        print("\nGraph Trust Updated\nSynchronizing Blockchain...\n")
+        for i, (_, row) in enumerate(df.iterrows()):
+            if i % 250 == 0: print(f"  Updating : {i}/{len(df)}")
+            addr = row["Address"]
+            fraud_p, rf_s, xgb_s, lr_s, sv_s, dt_s, ml_s = cache[addr]
+            graph_s, final_s = calculate_final_trust(addr, ml_s)
+            old = read_onchain_score(addr)
+            tx, block = update_onchain(addr, final_s)
+            ts = datetime.now(timezone.utc).isoformat()
+            pd.DataFrame([{"timestamp":ts,"node":addr,"old_score":old,
+                "rf_score":rf_s,"xgb_score":xgb_s,"logistic_score":lr_s,
+                "svm_score":sv_s,"decision_tree_score":dt_s,"ml_score":ml_s,
+                "graph_score":graph_s,"final_score":final_s,
+                "fraud_probability":fraud_p,"tx_hash":tx,"block_number":block
+            }]).to_csv(LOG_FILE, mode="a", header=False, index=False)
+        print(f"\n  Total : {len(df)}  |  Log : {LOG_FILE}")
+        if iteration < MAX_ITERATIONS - 1:
+            print(f"\nSleeping {SLEEP_TIME}s..."); time.sleep(SLEEP_TIME)
+    print("\n✓ AI TRUST ENGINE COMPLETED  ✓ Blockchain Updated")
 
-def init_csv():
-    if not os.path.exists(LOG_CSV):
-        with open(LOG_CSV, "w", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                "timestamp", "node", "old_score", "new_score",
-                "tx_hash", "block_number", "note"
-            ])
-
-# ----------------------------
-# Main loop
-# ----------------------------
-def run_loop():
-    init_csv()
-    for loop_count in range(MAX_LOOPS):
-        for node in accounts:
-            # Build node data dict (replace with real collector metrics if available)
-            node_data = template_df.sample(1).to_dict(orient="records")[0]
-            node_data["Address"] = node
-  # dummy placeholder
-            new_score = predict_trust_for_node(node_data)
-            old_score = read_contract_score(node)
-            tx_hash, block_number = update_on_chain(node, new_score)
-            note = "" if tx_hash else "tx_failed"
-            timestamp = datetime.now(timezone.utc).isoformat()
-
-            # Log to CSV
-            row = [timestamp, node, old_score, new_score, tx_hash, block_number, note]
-            with open(LOG_CSV, "a", newline="") as f:
-                writer = csv.writer(f)
-                writer.writerow(row)
-
-            print(f"[{timestamp}] Node {node[:10]}... old:{old_score} new:{new_score} "
-                  f"tx:{(tx_hash[:10]+'...') if tx_hash else 'N/A'} blk:{block_number}")
-
-        print(f"Loop {loop_count+1}/{MAX_LOOPS} | sleeping {LOOP_INTERVAL}s\n")
-        time.sleep(LOOP_INTERVAL)
-
-    print("✅ Finished all loops. Script stopped.")
-
-# ----------------------------
-# Run
-# ----------------------------
 if __name__ == "__main__":
-    run_loop()
+    run()

@@ -1,33 +1,36 @@
 import pandas as pd
+import joblib
 from sklearn.ensemble import IsolationForest
+from sklearn.preprocessing import MinMaxScaler
 
-# Load CSV data
-df = pd.read_csv("node_activity.csv")
+df = pd.read_csv("data/ethereum_fraud.csv")
+df.columns = df.columns.str.strip()
 
-print("Data loaded:")
-print(df.head())
+drop_cols = [
+    "FLAG", "Unnamed: 0", "Index", "Address",
+    "ERC20 most sent token type", "ERC20_most_rec_token_type"
+]
+feature_cols = [c for c in df.columns if c not in drop_cols]
+X = df[feature_cols].fillna(0)
 
-# Features for anomaly detection
-features = ["tx_count", "gas_used", "block_number"]
+scaler   = MinMaxScaler()
+X_scaled = scaler.fit_transform(X)
 
-X = df[features]
+model = IsolationForest(n_estimators=200, contamination=0.1, random_state=42)
+model.fit(X_scaled)
 
-# Create Isolation Forest model
-model = IsolationForest(
-    contamination=0.15,  # % of data expected to be anomalies
-    random_state=42
-)
+predictions = model.predict(X_scaled)
+scores      = model.decision_function(X_scaled)
 
-# Train model
-model.fit(X)
+df["Anomaly"]       = predictions
+df["Anomaly_Score"] = scores
 
-# Predict anomalies (-1 = anomaly, 1 = normal)
-df["anomaly"] = model.predict(X)
+joblib.dump(model,  "isolation_forest.pkl")
+joblib.dump(scaler, "if_scaler.pkl")
+df.to_csv("anomaly_results.csv", index=False)
 
-# Show results
-print("\nAnomaly detection results:")
-print(df[["node", "tx_count", "gas_used", "block_number", "anomaly"]])
-
-# Save output
-df.to_csv("node_activity_with_anomalies.csv", index=False)
-print("\nSaved results to node_activity_with_anomalies.csv")
+print("\nIsolation Forest trained successfully.")
+print(f"  n_estimators  : 200  |  contamination : 0.1  |  random_state : 42")
+print(f"Normal Samples  : {(predictions ==  1).sum()}")
+print(f"Anomaly Samples : {(predictions == -1).sum()}")
+print("\nGenerated: isolation_forest.pkl  if_scaler.pkl  anomaly_results.csv")
