@@ -1,9 +1,14 @@
-import os, joblib, shap, warnings
+import os, sys, joblib, shap, warnings
 import numpy as np
 import pandas as pd
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+
+# Windows consoles default stdout to cp1252, which can't encode the
+# checkmark character this script prints — force UTF-8.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import (
     accuracy_score, precision_score, recall_score, f1_score,

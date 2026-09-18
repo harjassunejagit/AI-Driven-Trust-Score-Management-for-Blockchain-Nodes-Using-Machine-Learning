@@ -1,0 +1,6 @@
+Model,ROC_AUC,PR_AUC
+Logistic Regression,0.7469,0.51
+SVM,0.8738,0.5882
+Decision Tree,0.9018,0.7671
+Random Forest,0.9884,0.9721
+XGBoost,0.9926,0.9813

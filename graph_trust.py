@@ -12,9 +12,15 @@ class GraphTrust:
 
     def build_graph(self, df, sender_col="from", receiver_col="to"):
         self.graph.clear()
-        grouped = df.groupby([sender_col, receiver_col]).size().reset_index(name="frequency")
+        if "weight" in df.columns:
+            # build_real_graph.py already carries a meaningful per-edge
+            # weight (cosine similarity) — sum it if the same pair repeats,
+            # rather than discarding it in favor of a raw occurrence count.
+            grouped = df.groupby([sender_col, receiver_col])["weight"].sum().reset_index()
+        else:
+            grouped = df.groupby([sender_col, receiver_col]).size().reset_index(name="weight")
         for _, row in grouped.iterrows():
-            self.graph.add_edge(row[sender_col], row[receiver_col], weight=row["frequency"])
+            self.graph.add_edge(row[sender_col], row[receiver_col], weight=row["weight"])
 
     def set_feature_trust(self, trust_dictionary):
         self.trust_scores = trust_dictionary.copy()

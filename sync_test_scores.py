@@ -1,9 +1,14 @@
-import os, json, time, joblib, pandas as pd
+import os, sys, json, time, joblib, pandas as pd
 from datetime import datetime, timezone
 from web3 import Web3
 
+# Windows consoles default stdout to cp1252, which can't encode the
+# checkmark characters this script prints — force UTF-8.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 RPC_URL          = os.getenv("GANACHE_RPC",      "http://127.0.0.1:7545")
-CONTRACT_ADDRESS = os.getenv("CONTRACT_ADDRESS", "0x206a41F32ecC5be2dF274f77887b52e4caf50dc1")
+CONTRACT_ADDRESS = os.getenv("CONTRACT_ADDRESS", "0x076Fc718CbB6A7404d9eD94bb203e8d13Bc1cAF9")
 ABI_PATH         = os.getenv("ABI_PATH",         "TrustScore_abi.json")
 LOG_CSV = "trust_log.csv"; MAX_ITERATIONS = 3; SLEEP_TIME = 2
 

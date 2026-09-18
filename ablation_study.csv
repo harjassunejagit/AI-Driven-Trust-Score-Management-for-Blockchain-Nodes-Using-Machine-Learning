@@ -1,0 +1,7 @@
+Configuration,Accuracy,Precision,Recall,F1,AUC
+RF only (w=1.0),0.9594,0.9665,0.8459,0.9022,0.9884
+XGB only (w=1.0),0.9699,0.9777,0.8844,0.9287,0.9926
+"5-model ensemble (no IF, no graph)",0.9646,0.9771,0.8606,0.9151,0.9871
+Ensemble + IF penalty (no graph),0.9642,0.9731,0.8624,0.9144,0.9832
+Ensemble + graph trust (no IF),0.9549,0.9822,0.811,0.8884,0.9859
+Full system (ensemble + IF + graph),0.9569,0.9824,0.8202,0.894,0.9826

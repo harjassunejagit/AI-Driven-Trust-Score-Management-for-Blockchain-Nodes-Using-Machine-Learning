@@ -1,7 +1,12 @@
-import os, pandas as pd
+import os, sys, pandas as pd
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+
+# Windows consoles default stdout to cp1252, which can't encode the
+# checkmark characters this script prints — force UTF-8.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
 
 RESULT_DIR = "results"
 TRUST_LOG  = "trust_log.csv"

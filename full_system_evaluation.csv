@@ -1,0 +1,11 @@
+Metric,Value
+Full System Accuracy (LOW=fraud),0.9639
+Full System Precision,0.9973
+Full System Recall,0.8395
+Full System F1,0.9116
+Mean Trust - Benign,90.69
+Mean Trust - Fraudulent,27.58
+Trust Separation Gap,63.11
+Fraud Containment Rate (%),83.95
+False Alarm Rate (%),0.07
+Spearman Correlation,0.7138

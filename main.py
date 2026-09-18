@@ -1,4 +1,9 @@
-import os
+import os, sys
+
+# Windows consoles default stdout to cp1252, which can't encode the
+# warning symbol this script prints — force UTF-8.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
 
 def step(n, desc, script):
     print(f"\n{'='*70}\nStep {n} : {desc}\n{'='*70}")
