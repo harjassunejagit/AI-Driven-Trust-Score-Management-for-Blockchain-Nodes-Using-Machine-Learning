@@ -139,22 +139,30 @@ plt.xlabel("Threshold"); plt.ylabel("Metric"); plt.title("Threshold Analysis (RF
 plt.legend(); plt.tight_layout()
 plt.savefig(os.path.join(RESULT_DIR,"threshold_analysis.png"),dpi=300); plt.close()
 
-# Feature importance
-imp=pd.DataFrame({"Feature":feature_cols,"Importance":random_forest.feature_importances_})
+# Feature importance — XGBoost, the highest-performing ensemble component
+# (Table 5/6/6b/6c all favor it over RF; McNemar's test confirms the edge
+# is real), rather than Random Forest.
+imp=pd.DataFrame({"Feature":feature_cols,"Importance":xgboost.feature_importances_})
 imp=imp.sort_values("Importance",ascending=False)
 imp.to_csv(os.path.join(RESULT_DIR,"feature_importance.csv"),index=False)
 plt.figure(figsize=(10,8)); plt.barh(imp.head(20)["Feature"],imp.head(20)["Importance"],color="#4C72B0")
-plt.gca().invert_yaxis(); plt.xlabel("Importance"); plt.title("Top-20 Feature Importances (RF)")
+plt.gca().invert_yaxis(); plt.xlabel("Importance"); plt.title("Top-20 Feature Importances (XGBoost)")
 plt.tight_layout(); plt.savefig(os.path.join(RESULT_DIR,"feature_importance.png"),dpi=300); plt.close()
 
-# SHAP  — FIX: robust ndim handling
+# SHAP — FIX: robust ndim handling. Uses XGBoost for the same reason as
+# feature importance above.
 sample=X_test_raw.sample(min(500,len(X_test_raw)),random_state=42)
-explainer=shap.TreeExplainer(random_forest)
+explainer=shap.TreeExplainer(xgboost)
 sv=explainer.shap_values(sample)
 if isinstance(sv,list): sv=sv[1]
 elif sv.ndim==3: sv=sv[:,:,1]
 plt.figure(); shap.summary_plot(sv,sample,feature_names=feature_cols,show=False)
 plt.tight_layout(); plt.savefig(os.path.join(RESULT_DIR,"shap_summary.png"),dpi=300); plt.close()
+
+# Save raw SHAP values + feature values for directional analysis (which
+# features push fraud probability up vs down) used when writing up results.
+np.save(os.path.join(RESULT_DIR,"shap_values_xgb.npy"), sv)
+sample.to_csv(os.path.join(RESULT_DIR,"shap_sample_xgb.csv"), index=False)
 
 print("\n"+"="*60+"\nEvaluation Completed Successfully\n"+"="*60)
 print("\nGenerated Files:")

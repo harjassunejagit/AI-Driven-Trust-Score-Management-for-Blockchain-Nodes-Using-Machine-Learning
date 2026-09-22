@@ -9,8 +9,12 @@ import matplotlib.pyplot as plt
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
-model        = joblib.load("fraud_model.pkl")
-scaler       = joblib.load("rf_scaler.pkl")
+# XGBoost, not Random Forest: it's the highest-performing ensemble
+# component (Table 5/6/6b/6c), and the edge is statistically significant
+# (McNemar's test, p=0.0002) — see evaluate_model.py for the same switch.
+# Unlike Random Forest's usage elsewhere, XGBoost is trained on RAW
+# (unscaled) features, so preprocess() must NOT apply the MinMaxScaler here.
+model        = joblib.load("xgboost_model.pkl")
 feature_cols = joblib.load("feature_cols.pkl")
 explainer    = shap.Explainer(model)
 
@@ -20,7 +24,7 @@ def preprocess(data):
     df.columns = df.columns.str.strip()
     for col in feature_cols:
         if col not in df.columns: df[col] = 0
-    return pd.DataFrame(scaler.transform(df[feature_cols].fillna(0)), columns=feature_cols)
+    return df[feature_cols].fillna(0)
 
 def predict(data):
     p = model.predict_proba(preprocess(data))[0][1]
@@ -43,7 +47,7 @@ def explain(data):
 
 def save_summary_plot(dataset_path="data/ethereum_fraud.csv"):
     df  = pd.read_csv(dataset_path); df.columns = df.columns.str.strip()
-    X   = pd.DataFrame(scaler.transform(df[feature_cols].fillna(0)), columns=feature_cols)
+    X   = df[feature_cols].fillna(0)
     exp = fraud_class(explainer(X))
     plt.figure(figsize=(12,8)); shap.plots.beeswarm(exp, show=False)
     plt.tight_layout(); plt.savefig("shap_summary.png",dpi=300,bbox_inches="tight"); plt.close()
