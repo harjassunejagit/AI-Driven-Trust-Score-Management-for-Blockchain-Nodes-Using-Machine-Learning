@@ -37,7 +37,7 @@ flowchart TD
     D --> E
     F[Real Behavioral-Similarity Graph] --> G[Graph Trust Propagation]
     E --> G
-    E --> H[SHAP Explainability<br/>Random Forest component]
+    E --> H[SHAP Explainability<br/>XGBoost component]
     G --> I[Final Trust Score Integration<br/>λ·Feature + 1-λ·Graph]
     I --> J[Ethereum Smart Contract<br/>TrustScore.sol]
     J --> K[Immutable On-Chain Storage]
@@ -95,8 +95,8 @@ ABNG_project/
 ├── Core ML pipeline
 │   ├── train_model.py              # Trains all 5 supervised classifiers
 │   ├── anomaly_detector.py         # Trains Isolation Forest (train-split only, no leakage)
-│   ├── evaluate_model.py           # Level-1 metrics, confusion matrices, ROC, SHAP summary
-│   ├── explainability.py           # Per-address SHAP explanations + waterfall plots
+│   ├── evaluate_model.py           # Level-1 metrics, confusion matrices, ROC, SHAP summary (XGBoost)
+│   ├── explainability.py           # Per-address SHAP explanations + waterfall plots (XGBoost)
 │   └── validate_model_kaggle.py    # Quick sanity check of a saved model
 │
 ├── Graph construction
